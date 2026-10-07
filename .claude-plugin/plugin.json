@@ -1,0 +1,10 @@
+{
+  "name": "waiter",
+  "version": "0.1.0",
+  "description": "Tracks a plan being executed and shows a progress bar with the time left for each task",
+  "author": {
+    "name": "Yariv Ziporin",
+    "email": "yarivzip@gmail.com"
+  },
+  "types": "./types/index.d.ts"
+}

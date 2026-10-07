@@ -1,0 +1,6 @@
+.claude-plugin/types/
+tsconfig.json
+*.zip
+node_modules/
+.DS_Store
+Thumbs.db
