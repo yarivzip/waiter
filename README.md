@@ -32,6 +32,30 @@ You need Claude Code (terminal or the desktop app's Code tab). The mod was built
 2.1.288, and the plugin system it uses is still early access. You also need `git`, to get the
 mod and so waiter can see progress from commits.
 
+### The short way: hand it to Claude
+
+Paste this into a Claude Code session. The same prompt installs waiter, updates it, and
+moves an old zip install to a git clone.
+
+```text
+Install or update the waiter mod for Claude Code from https://github.com/yarivzip/waiter.
+
+1. Find my copy: read "env" > "CLAUDE_CODE_PLUGIN_DIRS" in ~/.claude/settings.json and
+   look for a folder in it whose .claude-plugin/plugin.json has "name": "waiter".
+2. If that folder is a git clone of yarivzip/waiter, run `git pull --ff-only` in it and
+   skip to step 5.
+3. Otherwise, git clone https://github.com/yarivzip/waiter into ~/tools/waiter (on Windows
+   %USERPROFILE%\tools\waiter) unless I name another folder. Keep it outside ~/.claude.
+   If my old copy was not a git clone (a zip install), ask me before deleting it.
+4. Point CLAUDE_CODE_PLUGIN_DIRS at the clone's full path. Change only that value: keep
+   every other setting, and keep any other folders in it (separated by ; on Windows,
+   : on macOS/Linux). Write valid JSON, with doubled backslashes on Windows.
+5. Run `claude plugin validate <folder>` and show me the result and the new commits, if any.
+6. Tell me to start a new Claude Code session and type /waiter to check it loaded.
+```
+
+### By hand
+
 1. **Clone the repo** into any folder outside `.claude`:
 
    Windows:
@@ -79,7 +103,8 @@ mod and so waiter can see progress from commits.
 
 To check it loaded, type `/waiter`. It answers even before there is a plan.
 
-**Update:** run `git pull` in that folder, then start a new session.
+**Update:** paste the prompt above again, or run `git pull` in that folder yourself. Then
+start a new session.
 
 **Without git:** you can unzip a copy instead. Put it in a folder outside `.claude` so that
 it directly contains `.claude-plugin`, `hooks` and `types`, then do steps 2 and 3. To update,
