@@ -380,28 +380,28 @@ export const register: Register = on => {
     const arg = e.args.trim()
     if (arg === '' || arg === 'show' || arg === 'max') {
       if (!(await current($))) {
-        return { text: 'waiter: no plan yet. Run /waiter <plan.md>, or read or execute a plan and it is picked up.' }
+        return { text: 'no plan yet. Run /waiter <plan.md>, or read or execute a plan and it is picked up.' }
       }
       await setMode($, 'pane')
-      return { text: 'waiter: pane opened.' }
+      return { text: 'pane opened.' }
     }
     if (arg === 'min') {
       await setMode($, 'band')
-      return { text: 'waiter: minimized above the prompt.' }
+      return { text: 'minimized above the prompt.' }
     }
     if (arg === 'off') {
       await stop($)
-      return { text: 'waiter: stopped tracking.' }
+      return { text: 'stopped tracking.' }
     }
     if (arg === 'refresh') {
       await reparse($)
       await refreshGit($)
-      return { text: 'waiter: refreshed.' }
+      return { text: 'refreshed.' }
     }
     const path = await absolute($, arg)
-    if (!(await openGuarded($, path))) return { text: `waiter: could not open ${path} (missing, or refused by a guard).` }
+    if (!(await openGuarded($, path))) return { text: `could not open ${path} (missing, or refused by a guard).` }
     if ((await read($, modeA)) === 'hidden') await update($, modeA, () => 'pane' as WaiterMode)
-    return { text: `waiter: ${await track($, path)}` }
+    return { text: await track($, path) }
   })
 
   on('tool.call', async ($, e, next) => {
