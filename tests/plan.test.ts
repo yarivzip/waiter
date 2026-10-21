@@ -108,6 +108,15 @@ describe('parsePlan', () => {
     expect(plan.tasks.map(t => t.num)).toEqual(['1', '2', '3'])
   })
 
+  test('letter-prefixed task numbers (Task A1) are task headings, and commits naming them finish them', () => {
+    const text = SUPERPOWERS.replace('### Task 1:', '### Task A1:').replace('### Task 2:', '### Task A2:').replace('### Task 3:', '### Task A3:')
+    const plan = parsePlan(text.replace('Delivery 4b: ', ''), 'D:/x/documents/design/plans/part-a.md')!
+    expect(plan.kind).toBe('headings')
+    expect(plan.tasks.map(t => t.num)).toEqual(['A1', 'A2', 'A3'])
+    const done = matchCommits(plan, parseGitLog('500\tOpaque keys: sessions build ChangeKey data (Task A1)\n600\tTask A12 elsewhere'), 0)
+    expect(Object.keys(done)).toEqual(['task-A1'])
+  })
+
   test('prose is not a plan', () => {
     expect(parsePlan('# Notes\n\nJust some text.\n', '/r/notes.md')).toBe(null)
   })
@@ -146,6 +155,11 @@ describe('matchCommits', () => {
     const plain = parsePlan(SUPERPOWERS.replace('Delivery 4b: ', ''), '/r/plans/p.md')!
     const done = matchCommits(plain, parseGitLog('100\tTask 3 done\n300\tPlan: Task 1 reworded\n400\tTask 1: build it'), 200_000)
     expect(Object.keys(done)).toEqual(['task-1'])
+  })
+
+  test('a plan edit that names a task in its body does not finish it', () => {
+    const done = matchCommits(plan4c, parseGitLog('500\t4c Part B plan, review fix: a Task 3 test pins it\n600\tSpec 4c, Task 2 reworded'), 0)
+    expect(done).toEqual({})
   })
 })
 

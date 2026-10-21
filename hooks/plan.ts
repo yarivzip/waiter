@@ -19,7 +19,7 @@ export const REVIEW_MS = 20 * 60_000
 
 const NOUNS = 'task|step|phase|milestone|stage|part|chunk|story|epic|deliverable|wave|sprint|item'
 const TASK_HEADING = new RegExp(
-  `^(#{1,6})\\s+(?:\\[[ xX]\\]\\s+)?(?:~~)?\\s*(${NOUNS})\\s*#?\\s*(\\d+[a-z]?(?:\\.\\d+)*)\\b\\s*[:.)\\-–—]?\\s*(.*)$`,
+  `^(#{1,6})\\s+(?:\\[[ xX]\\]\\s+)?(?:~~)?\\s*(${NOUNS})\\s*#?\\s*((?:[A-Z](?=\\d))?\\d+[a-z]?(?:\\.\\d+)*)\\b\\s*[:.)\\-–—]?\\s*(.*)$`,
   'i',
 )
 const NUMBERED_HEADING = /^(#{2,6})\s+(\d+(?:\.\d+)*)[.)]?\s+(.+)$/
@@ -290,6 +290,8 @@ export function matchCommits(plan: WaiterPlan, commits: readonly Commit[], since
   for (const c of commits) {
     if (c.at < since) continue
     if (/^\s*(plan|spec|design|memo|notes?|wip)\b/i.test(c.subject)) continue
+    // "4c Part B plan, review fix: ... a Task 3 test pins it" edits the plan, not Task 3.
+    if (/\b(plan|spec)\b/i.test(c.subject.split(/[:,]/)[0])) continue
     if (plan.token) {
       const tokens = (c.subject.match(shape) ?? []).map(t => t.toLowerCase())
       if (tokens.length > 0 && !tokens.includes(plan.token)) continue

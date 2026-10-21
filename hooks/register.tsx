@@ -148,7 +148,9 @@ async function refreshGit($: $) {
   if (out === null) return
   const found = matchCommits(plan, parseGitLog(out), since)
   await update($, doneA, done => {
-    const next: WaiterDone = { ...done }
+    // Git-found entries are re-derived each time, so a commit that no longer
+    // counts (the matching rules changed) stops marking its task done.
+    const next: WaiterDone = Object.fromEntries(Object.entries(done).filter(([, v]) => v.by !== 'git'))
     for (const [k, v] of Object.entries(found)) {
       if (!next[k] || v.at < next[k].at) next[k] = v
     }
