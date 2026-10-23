@@ -9,6 +9,7 @@ import {
   parseStatus,
   sessionPlan,
   stepReached,
+  takesOver,
 } from '../hooks/plan'
 
 const MIN = 60_000
@@ -305,5 +306,38 @@ describe('estimate', () => {
     const list = [{ id: '9', subject: 'Task 2: Profile fields', status: 'in_progress' as const, startedAt: 50 * MIN }]
     const v = estimate(plan, { 'task-1': { at: 30 * MIN, by: 'git' } }, list, 0, 6_000, 55 * MIN)
     expect(v.rows[1].leftMs).toBe(v.rows[1].estMs - 5 * MIN)
+  })
+})
+
+// 23 Oct 2026 (KMS 6a): reading the Part B and Part C plans while Part A ran made the
+// waiter jump to Part C, because they were newer files. A plan only READ must not take
+// over a tracked plan that is still moving (a task finished in the last hours).
+describe('takesOver', () => {
+  const now = 10 * 60 * 60_000
+  const base = {
+    tracked: true, trackedIsPlan: true, isFinished: false, isWrite: false,
+    isRestored: false, isNewer: true, done: {}, now,
+  }
+  const busy = { A10: { at: now - 30 * MIN, by: 'git' as const } }
+  const idle = { A10: { at: now - 5 * 60 * MIN, by: 'git' as const } }
+
+  test('a newer plan only read does not take over a busy plan', () => {
+    expect(takesOver({ ...base, done: busy })).toBe(false)
+  })
+  test('a restored busy plan is not taken over by a read either', () => {
+    expect(takesOver({ ...base, isNewer: false, isRestored: true, done: busy })).toBe(false)
+  })
+  test('a newer plan read takes over an idle plan', () => {
+    expect(takesOver({ ...base, done: idle })).toBe(true)
+  })
+  test('writing a plan always takes over', () => {
+    expect(takesOver({ ...base, isWrite: true, done: busy })).toBe(true)
+  })
+  test('a finished or missing tracked plan is taken over', () => {
+    expect(takesOver({ ...base, isFinished: true, done: busy })).toBe(true)
+    expect(takesOver({ ...base, tracked: false })).toBe(true)
+  })
+  test('an older plan read never takes over', () => {
+    expect(takesOver({ ...base, isNewer: false, done: idle })).toBe(false)
   })
 })

@@ -14,6 +14,7 @@ import {
   parsePlan,
   parseStatus,
   sessionPlan,
+  takesOver,
 } from './plan'
 import type { Row, View } from './plan'
 
@@ -257,9 +258,14 @@ async function consider($: $, path: string, isWrite: boolean) {
   if (!plan || !(isPlanPath(path) || plan.kind === 'xml')) return
   const v = await view($)
   const isFinished = v !== null && v.doneCount === v.rows.length
-  const isNewer = async () => ((await created($, path)) ?? Number.MAX_SAFE_INTEGER) > (await read($, startedA))
+  const isNewer = ((await created($, path)) ?? Number.MAX_SAFE_INTEGER) > (await read($, startedA))
   const isRestored = await read($, restoredA)
-  if (!tracked || isRestored || isFinished || isWrite || !isPlanPath(tracked.path) || (await isNewer())) {
+  const done = await read($, doneA)
+  const now = await $.clock.now()
+  if (takesOver({
+    tracked: tracked !== null, trackedIsPlan: tracked !== null && isPlanPath(tracked.path),
+    isFinished, isWrite, isRestored, isNewer, done, now,
+  })) {
     await track($, path)
     return
   }

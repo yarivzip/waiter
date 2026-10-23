@@ -260,6 +260,28 @@ export function isPlanPath(path: string): boolean {
   return PLAN_PATH.test(path)
 }
 
+// A tracked plan that finished a task this recently is still being executed.
+export const BUSY_MS = 3 * 60 * 60_000
+
+// Whether a plan file a tool call just opened replaces the tracked plan. Writing one
+// always does; so does finding nothing (or a finished plan) tracked. A plan that is
+// only read takes over a restored or older tracked plan, but never one still moving:
+// reading the next plans of a delivery must not hide the one being executed.
+export function takesOver(o: {
+  tracked: boolean
+  trackedIsPlan: boolean
+  isFinished: boolean
+  isWrite: boolean
+  isRestored: boolean
+  isNewer: boolean
+  done: WaiterDone
+  now: number
+}): boolean {
+  if (!o.tracked || o.isFinished || o.isWrite || !o.trackedIsPlan) return true
+  const isBusy = Object.values(o.done).some(d => o.now - d.at < BUSY_MS)
+  return !isBusy && (o.isRestored || o.isNewer)
+}
+
 // The session's own task list as a plan of equal-weight tasks.
 export function sessionPlan(list: readonly WaiterSessionTask[]): WaiterPlan | null {
   if (list.length === 0) return null
