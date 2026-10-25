@@ -300,10 +300,11 @@ async function reparse($: $) {
 }
 
 // A plan-like file a tool call just opened. It replaces the tracked plan when
-// nothing is tracked, the tracked one is finished, or this one is being written.
-// Then the commits decide: the plan whose tasks they name wins, however old.
-// Else it replaces a tracked plan that came back from an earlier session or is
-// older: an older plan opened for reference does not take over this session's plan.
+// nothing is tracked or the tracked one is finished. Then the commits decide: the
+// plan whose tasks they name wins, however old, even over an edit of another plan.
+// Else it replaces the tracked plan when it is being written, or the tracked one
+// came back from an earlier session or is older: an older plan opened for
+// reference does not take over this session's plan.
 async function consider($: $, path: string, isWrite: boolean) {
   if (!/\.(md|markdown)$/i.test(path)) return
   await allow($, path)
@@ -322,7 +323,7 @@ async function consider($: $, path: string, isWrite: boolean) {
   const now = await $.clock.now()
   const trackedIsPlan = tracked !== null && isPlanPath(tracked.path)
   let byCommits: { read?: Evidence; trackedGit?: Evidence } = {}
-  if (tracked && trackedIsPlan && !isWrite && !isFinished) {
+  if (tracked && trackedIsPlan && !isFinished) {
     const since = made ?? (await storeGet<number>($, `start:${path}`, now))
     const commits = await commitsSince($, dirOf(path), Math.min(since, startedAt))
     if (commits) byCommits = { read: evidence(plan, commits, since, now), trackedGit: evidence(tracked, commits, startedAt, now) }

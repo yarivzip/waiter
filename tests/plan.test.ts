@@ -429,6 +429,15 @@ describe('the plan the commits name', () => {
     expect(takesOver({ ...o, read: c, trackedGit: a })).toBe(false)
   })
 
+  test('editing Part C while Part A runs keeps Part A; a brand-new plan written still takes over', () => {
+    const o = {
+      tracked: true, trackedIsPlan: true, isFinished: false, isWrite: true,
+      isRestored: false, isNewer: true, done: {}, now,
+    }
+    expect(takesOver({ ...o, read: c, trackedGit: a })).toBe(false)
+    expect(takesOver({ ...o, read: { since: now, hit: 0, isFinished: false }, trackedGit: a })).toBe(true)
+  })
+
   test('a plan written after the old plan’s last commit is not pulled back to it', () => {
     const d = { since: now - 60 * MIN, hit: 0, isFinished: false }
     expect(committedPlan(d, [{ path: partA.path, git: a }])).toBe(null)

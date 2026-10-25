@@ -287,12 +287,13 @@ export function committedPlan<T extends { git: Evidence }>(tracked: Evidence, ot
   return ahead.sort((x, y) => y.git.hit - x.git.hit)[0] ?? null
 }
 
-// Whether a plan file a tool call just opened replaces the tracked plan. Writing one
-// always does; so does finding nothing (or a finished plan) tracked. Then the commits
-// decide (`read` and `trackedGit`): the plan whose tasks they name is the one being
-// executed. Otherwise a plan that is only read takes over a restored or older tracked
-// plan, but never one still moving: reading the next plans of a delivery must not
-// hide the one being executed.
+// Whether a plan file a tool call just opened replaces the tracked plan. Finding
+// nothing (or a finished plan) tracked, it does. Then the commits decide (`read` and
+// `trackedGit`): the plan whose tasks they name is the one being executed, so editing
+// a sibling plan mid-run does not take over (a brand-new plan has no commits against
+// it, and does). Writing a plan takes over. Otherwise a plan that is only read takes
+// over a restored or older tracked plan, but never one still moving: reading the next
+// plans of a delivery must not hide the one being executed.
 export function takesOver(o: {
   tracked: boolean
   trackedIsPlan: boolean
@@ -305,11 +306,12 @@ export function takesOver(o: {
   read?: Evidence
   trackedGit?: Evidence
 }): boolean {
-  if (!o.tracked || o.isFinished || o.isWrite || !o.trackedIsPlan) return true
+  if (!o.tracked || o.isFinished || !o.trackedIsPlan) return true
   if (o.read && o.trackedGit) {
     if (committedOver(o.read, o.trackedGit)) return true
     if (committedOver(o.trackedGit, o.read)) return false
   }
+  if (o.isWrite) return true
   const isBusy = Object.values(o.done).some(d => o.now - d.at < BUSY_MS)
   return !isBusy && (o.isRestored || o.isNewer)
 }
