@@ -263,10 +263,36 @@ export function isPlanPath(path: string): boolean {
 // A tracked plan that finished a task this recently is still being executed.
 export const BUSY_MS = 3 * 60 * 60_000
 
+// What the commits say about a plan: when it came to be, the newest commit that
+// names one of its tasks (0 for none), and whether they finish it.
+export type Evidence = { since: number; hit: number; isFinished: boolean }
+
+export function evidence(plan: WaiterPlan, commits: readonly Commit[], since: number, now: number): Evidence {
+  const done = matchCommits(plan, commits, since)
+  const hit = Object.values(done).reduce((m, d) => Math.max(m, d.at), 0)
+  const v = estimate(plan, done, [], since, DEFAULT_RATE, now)
+  return { since, hit, isFinished: v.doneCount === v.rows.length }
+}
+
+// Plan `a` is being executed rather than plan `b`: a commit named one of a's tasks
+// after b existed and after b's own last one. However old a is, and however new b.
+function committedOver(a: Evidence, b: Evidence): boolean {
+  return !a.isFinished && a.hit > Math.max(b.hit, b.since)
+}
+
+// Of the other plans, the one the commits say is being executed instead of the
+// tracked one (the newest commit wins); null when they say nothing against it.
+export function committedPlan<T extends { git: Evidence }>(tracked: Evidence, others: readonly T[]): T | null {
+  const ahead = others.filter(o => committedOver(o.git, tracked))
+  return ahead.sort((x, y) => y.git.hit - x.git.hit)[0] ?? null
+}
+
 // Whether a plan file a tool call just opened replaces the tracked plan. Writing one
-// always does; so does finding nothing (or a finished plan) tracked. A plan that is
-// only read takes over a restored or older tracked plan, but never one still moving:
-// reading the next plans of a delivery must not hide the one being executed.
+// always does; so does finding nothing (or a finished plan) tracked. Then the commits
+// decide (`read` and `trackedGit`): the plan whose tasks they name is the one being
+// executed. Otherwise a plan that is only read takes over a restored or older tracked
+// plan, but never one still moving: reading the next plans of a delivery must not
+// hide the one being executed.
 export function takesOver(o: {
   tracked: boolean
   trackedIsPlan: boolean
@@ -276,8 +302,14 @@ export function takesOver(o: {
   isNewer: boolean
   done: WaiterDone
   now: number
+  read?: Evidence
+  trackedGit?: Evidence
 }): boolean {
   if (!o.tracked || o.isFinished || o.isWrite || !o.trackedIsPlan) return true
+  if (o.read && o.trackedGit) {
+    if (committedOver(o.read, o.trackedGit)) return true
+    if (committedOver(o.trackedGit, o.read)) return false
+  }
   const isBusy = Object.values(o.done).some(d => o.now - d.at < BUSY_MS)
   return !isBusy && (o.isRestored || o.isNewer)
 }

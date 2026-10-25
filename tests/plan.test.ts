@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  committedPlan,
   estimate,
+  evidence,
   isPlanPath,
   matchCommits,
   parseGitLog,
@@ -339,5 +341,106 @@ describe('takesOver', () => {
   })
   test('an older plan read never takes over', () => {
     expect(takesOver({ ...base, isNewer: false, done: idle })).toBe(false)
+  })
+})
+
+// 25 Oct 2026 (KMS 6a): the waiter sat on Part C (written last, no commits) while every
+// commit named a Part A task, and re-reading Part A did not switch it back, because Part A
+// is older. The plan whose tasks the commits name, after the other plan existed, wins.
+describe('the plan the commits name', () => {
+  const T = (s: string) => Date.parse(s) / 1000
+  const partA = parsePlan(
+    `# KMS 6a — Part A: Opaque Keys, Vault and Service Core — Implementation Plan
+
+### Task A11: The web API — register, requests, users
+
+- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 2: Commit**
+
+### Task A12: Moving the lab keys in
+
+- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 2: Commit**
+
+### Task A13: Part A review gate
+
+- [ ] **Step 1: Review the whole part**
+`,
+    'D:/k/documents/design/plans/2026-10-21-kms-6a-part-a-vault-and-service-core.md',
+  )!
+  const partC = parsePlan(
+    `# KMS 6a — Part C: KMS Screens, HTTPS, Security Sweep and Acceptance — Implementation Plan
+
+### Task C1: Web app skeleton, sign-in
+
+- [ ] **Step 1: Write the failing tests**
+
+### Task C2: Register, key page, requests and approvals
+
+- [ ] **Step 1: Write the failing tests**
+`,
+    'D:/k/documents/design/plans/2026-10-21-kms-6a-part-c-screens-https-acceptance.md',
+  )!
+  const aSince = T('2026-10-21T13:05:53+03:00') * 1000
+  const cSince = T('2026-10-21T13:10:21+03:00') * 1000
+  const log = parseGitLog(
+    [
+      `${T('2026-10-23T20:06:30+03:00')}\tKMS 6a: memo NEXT-STEPS-2026-10-23 (A10, A11 done; A12 fix round 1 done, re-review next)`,
+      `${T('2026-10-23T20:05:07+03:00')}\tKMS: the import-lab approval binds the plan and the file (Task A12 fix 1)`,
+      `${T('2026-10-23T19:19:04+03:00')}\tKMS: one-time import of the lab key store (Task A12)`,
+      `${T('2026-10-23T18:38:29+03:00')}\tKMS 6a Part A plan: Task A11 ticked done`,
+      `${T('2026-10-23T18:32:13+03:00')}\tKMS: first setup stays closed once the audit has rows (Task A11 fix 5)`,
+      `${T('2026-10-23T10:06:58+03:00')}\tWIP (not reviewed): Task A10 part 1 partial work`,
+    ].join('\n'),
+  )
+  const now = Date.parse('2026-10-25T09:00:00+03:00')
+  const a = evidence(partA, log, aSince, now)
+  const c = evidence(partC, log, cSince, now)
+
+  test('the commits name Part A, not Part C', () => {
+    expect(a.hit).toBe(T('2026-10-23T20:05:07+03:00') * 1000)
+    expect(a.isFinished).toBe(false)
+    expect(c.hit).toBe(0)
+  })
+
+  test('restored on Part C, with Part A commits: Part A is the plan', () => {
+    const picked = committedPlan(c, [{ path: partA.path, git: a }])
+    expect(picked?.path).toBe(partA.path)
+    // and Part A shows its next task, not C1
+    const v = estimate(partA, matchCommits(partA, log, aSince), [], aSince, 6_000, now)
+    expect(v.rows.map(r => r.state)).toEqual(['done', 'done', 'current'])
+  })
+
+  test('reading Part A while Part C is tracked switches to Part A, though Part A is older', () => {
+    const o = {
+      tracked: true, trackedIsPlan: true, isFinished: false, isWrite: false,
+      isRestored: false, isNewer: false, done: {}, now,
+    }
+    expect(takesOver({ ...o, read: a, trackedGit: c })).toBe(true)
+    // without the commits the old rule holds: an older plan read does not take over
+    expect(takesOver(o)).toBe(false)
+  })
+
+  test('reading Part C while Part A is tracked keeps Part A, even when Part A is idle', () => {
+    const o = {
+      tracked: true, trackedIsPlan: true, isFinished: false, isWrite: false,
+      isRestored: true, isNewer: true, done: {}, now,
+    }
+    expect(takesOver({ ...o, read: c, trackedGit: a })).toBe(false)
+  })
+
+  test('a plan written after the old plan’s last commit is not pulled back to it', () => {
+    const d = { since: now - 60 * MIN, hit: 0, isFinished: false }
+    expect(committedPlan(d, [{ path: partA.path, git: a }])).toBe(null)
+  })
+
+  test('a finished plan never wins, and a tie keeps the tracked plan', () => {
+    expect(committedPlan(c, [{ path: partA.path, git: { ...a, isFinished: true } }])).toBe(null)
+    expect(committedPlan({ ...c, hit: a.hit }, [{ path: partA.path, git: a }])).toBe(null)
+  })
+
+  test('of several plans the commits name, the newest commit wins', () => {
+    const b = { since: aSince + 1, hit: a.hit - 60 * MIN, isFinished: false }
+    expect(committedPlan(c, [{ path: 'b', git: b }, { path: 'a', git: a }])?.path).toBe('a')
   })
 })

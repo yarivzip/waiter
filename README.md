@@ -130,6 +130,9 @@ The panel has the buttons **Minimize**, **Refresh** and **Stop tracking**. The o
 - **Each session shows one plan.** It switches when the session opens a newer plan, starts
   writing one, or finishes the current one. An older plan opened only to look something up
   does not take over.
+- **The commits pick the plan being executed.** When the commits name the tasks of one plan
+  (`Task A12`) and not of another, the one they name wins, even if it is older. This holds
+  when a session starts again on the plan written last, and when Claude opens a plan.
 - **Waiter only reads files that Claude already opened** through its normal tools. Any guard
   hooks you have (for example, folders Claude must never open) still apply.
   `/waiter <path>` also goes through Claude's Read tool.

@@ -6,8 +6,10 @@ import {
   DEFAULT_RATE,
   bar,
   clock,
+  committedPlan,
   duration,
   estimate,
+  evidence,
   isPlanPath,
   matchCommits,
   parseGitLog,
@@ -16,7 +18,7 @@ import {
   sessionPlan,
   takesOver,
 } from './plan'
-import type { Row, View } from './plan'
+import type { Commit, Evidence, Row, View } from './plan'
 
 const PANE = 'waiter'
 const TITLE = 'Waiter'
@@ -140,14 +142,20 @@ async function setMode($: $, mode: WaiterMode) {
   else await $.ui.close({ id: PANE })
 }
 
+// The repo's commits since `since`, subjects and times only; null without git.
+async function commitsSince($: $, dir: string, since: number): Promise<Commit[] | null> {
+  const out = await git($, ['log', '--all', `--since=${Math.floor(since / 1000) - 60}`, '--format=%ct%x09%s'], dir)
+  return out === null ? null : parseGitLog(out)
+}
+
 // Reads the plan's commits and records which tasks they finish.
 async function refreshGit($: $) {
   const plan = await read($, planA)
   if (!plan) return
   const since = await read($, startedA)
-  const out = await git($, ['log', '--all', `--since=${Math.floor(since / 1000) - 60}`, '--format=%ct%x09%s'], dirOf(plan.path))
-  if (out === null) return
-  const found = matchCommits(plan, parseGitLog(out), since)
+  const commits = await commitsSince($, dirOf(plan.path), since)
+  if (commits === null) return
+  const found = matchCommits(plan, commits, since)
   await update($, doneA, done => {
     // Git-found entries are re-derived each time, so a commit that no longer
     // counts (the matching rules changed) stops marking its task done.
@@ -195,6 +203,51 @@ async function created($: $, path: string): Promise<number | null> {
   return last ? Number(last) * 1000 : null
 }
 
+// When a plan came to be: its file's first commit, else when waiter first saw it.
+async function startOf($: $, path: string, now: number): Promise<number> {
+  return (await created($, path)) ?? (await storeGet<number>($, `start:${path}`, now))
+}
+
+// The plan files this project opened, as their paths are spelled, newest last.
+async function remember($: $, path: string) {
+  const key = `plans:${norm(await $.session.root())}`
+  const known = await storeGet<string[]>($, key, [])
+  await storeSet($, key, [...known.filter(p => !same(p, path)), path].slice(-20))
+}
+
+// Switches to the sibling plan the commits say is being executed, if they name
+// one: a session that comes back on the plan written last must not show its
+// first task running while every commit names a task of another plan.
+async function followCommits($: $) {
+  const tracked = await read($, planA)
+  if (!tracked || !isPlanPath(tracked.path)) return
+  const now = await $.clock.now()
+  const paths = [
+    ...(await storeGet<string[]>($, `plans:${norm(await $.session.root())}`, [])),
+    ...(await storeGet<string[]>($, 'opened', [])), // lower case; holds plans opened before the list above
+  ]
+  const others: { path: string; plan: WaiterPlan; since: number }[] = []
+  for (const p of paths) {
+    if (!/\.(md|markdown)$/i.test(p) || !isPlanPath(p) || !same(dirOf(p), dirOf(tracked.path))) continue
+    if (same(p, tracked.path) || others.some(o => same(o.path, p))) continue
+    const plan = await load($, p)
+    if (plan) others.push({ path: p, plan, since: await startOf($, p, now) })
+  }
+  if (others.length === 0) return
+  const since = await read($, startedA)
+  const commits = await commitsSince($, dirOf(tracked.path), Math.min(since, ...others.map(o => o.since)))
+  if (commits === null) return
+  const picked = committedPlan(
+    evidence(tracked, commits, since, now),
+    others.map(o => ({ path: o.path, git: evidence(o.plan, commits, o.since, now) })),
+  )
+  if (!picked) return
+  const isRestored = await read($, restoredA)
+  await track($, picked.path)
+  await update($, restoredA, () => isRestored)
+  await update($, noteA, () => 'picked by its commits')
+}
+
 async function load($: $, path: string): Promise<WaiterPlan | null> {
   if (!(await isAllowed($, path))) return null
   try {
@@ -210,8 +263,9 @@ async function track($: $, path: string): Promise<string> {
   if (!plan) return `no tasks found in ${path}.`
   const now = await $.clock.now()
   const seen = await storeGet<WaiterDone>($, `seen:${plan.path}`, {})
-  const start = (await created($, plan.path)) ?? (await storeGet<number>($, `start:${plan.path}`, now))
+  const start = await startOf($, plan.path, now)
   await storeSet($, `start:${plan.path}`, start)
+  await remember($, plan.path)
   await update($, planA, () => plan)
   await update($, restoredA, () => false)
   await update($, doneA, () => seen)
@@ -246,9 +300,10 @@ async function reparse($: $) {
 }
 
 // A plan-like file a tool call just opened. It replaces the tracked plan when
-// nothing is tracked, the tracked one came back from an earlier session, is
-// finished, this one is being written, or this one is newer: an older plan
-// opened for reference does not take over this session's plan.
+// nothing is tracked, the tracked one is finished, or this one is being written.
+// Then the commits decide: the plan whose tasks they name wins, however old.
+// Else it replaces a tracked plan that came back from an earlier session or is
+// older: an older plan opened for reference does not take over this session's plan.
 async function consider($: $, path: string, isWrite: boolean) {
   if (!/\.(md|markdown)$/i.test(path)) return
   await allow($, path)
@@ -256,15 +311,25 @@ async function consider($: $, path: string, isWrite: boolean) {
   if (tracked && same(tracked.path, path)) return reparse($)
   const plan = await load($, path)
   if (!plan || !(isPlanPath(path) || plan.kind === 'xml')) return
+  await remember($, path)
   const v = await view($)
   const isFinished = v !== null && v.doneCount === v.rows.length
-  const isNewer = ((await created($, path)) ?? Number.MAX_SAFE_INTEGER) > (await read($, startedA))
+  const made = await created($, path)
+  const startedAt = await read($, startedA)
+  const isNewer = (made ?? Number.MAX_SAFE_INTEGER) > startedAt
   const isRestored = await read($, restoredA)
   const done = await read($, doneA)
   const now = await $.clock.now()
+  const trackedIsPlan = tracked !== null && isPlanPath(tracked.path)
+  let byCommits: { read?: Evidence; trackedGit?: Evidence } = {}
+  if (tracked && trackedIsPlan && !isWrite && !isFinished) {
+    const since = made ?? (await storeGet<number>($, `start:${path}`, now))
+    const commits = await commitsSince($, dirOf(path), Math.min(since, startedAt))
+    if (commits) byCommits = { read: evidence(plan, commits, since, now), trackedGit: evidence(tracked, commits, startedAt, now) }
+  }
   if (takesOver({
-    tracked: tracked !== null, trackedIsPlan: tracked !== null && isPlanPath(tracked.path),
-    isFinished, isWrite, isRestored, isNewer, done, now,
+    tracked: tracked !== null, trackedIsPlan,
+    isFinished, isWrite, isRestored, isNewer, done, now, ...byCommits,
   })) {
     await track($, path)
     return
@@ -367,19 +432,21 @@ export const register: Register = on => {
       const mode = await storeGet<WaiterMode>($, 'mode', 'pane')
       await update($, modeA, () => mode)
     }
-    if (!(await read($, planA))) {
-      // A new session in the same project picks its last plan back up.
-      const last = await storeGet<string>($, `last:${norm(await $.session.root())}`, '')
-      if (last) {
-        void (async () => {
-          if (!(await load($, last))) return
-          await track($, last)
-          await update($, restoredA, () => true)
-          const v = await view($)
-          if (v && v.doneCount === v.rows.length) await $.ui.close({ id: PANE })
-        })()
+    void (async () => {
+      const isRestore = !(await read($, planA))
+      if (isRestore) {
+        // A new session in the same project picks its last plan back up...
+        const last = await storeGet<string>($, `last:${norm(await $.session.root())}`, '')
+        if (!last || !(await load($, last))) return
+        await track($, last)
+        await update($, restoredA, () => true)
       }
-    }
+      // ...unless the commits since name the tasks of another plan.
+      await followCommits($)
+      if (!isRestore) return
+      const v = await view($)
+      if (v && v.doneCount === v.rows.length) await $.ui.close({ id: PANE })
+    })()
 
     return started
   })
