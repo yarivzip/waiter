@@ -352,10 +352,14 @@ export function matchCommits(plan: WaiterPlan, commits: readonly Commit[], since
       const tokens = (c.subject.match(shape) ?? []).map(t => t.toLowerCase())
       if (tokens.length > 0 && !tokens.includes(plan.token)) continue
     }
+    // "... ACC cases for plan Task C8 (Task C6)": a tag in parentheses names the task the commit
+    // finishes, so only the tags count; the text may mention other tasks.
+    const tags = (c.subject.match(/\([^()]*\)/g) ?? []).join(' ')
     for (const t of plan.tasks) {
       if (t.num === undefined || t.noun === undefined) continue
       const re = new RegExp(`\\b${t.noun}\\s*#?${t.num.replace(/\./g, '\\.')}(?![.\\d])`, 'i')
-      if (!re.test(c.subject)) continue
+      const tagged = new RegExp(`\\([^()]*\\b${t.noun}\\s*#?\\w`, 'i').test(c.subject)
+      if (!re.test(tagged ? tags : c.subject)) continue
       // The last one counts: "Task 5", then "Task 5 fix 1" after the review.
       const was = done[t.key]
       if (!was || c.at > was.at) done[t.key] = { at: c.at, by: 'git' }

@@ -160,6 +160,13 @@ describe('matchCommits', () => {
     expect(Object.keys(done)).toEqual(['task-1'])
   })
 
+  test('a commit tagged "(Task C6)" finishes C6 only, not a later task its text names', () => {
+    const c = SUPERPOWERS.replace('### Task 1:', '### Task C6:').replace('### Task 2:', '### Task C7:').replace('### Task 3:', '### Task C8:')
+    const plan = parsePlan(c.replace('Delivery 4b: ', ''), '/r/plans/part-c.md')!
+    const done = matchCommits(plan, parseGitLog('500\tSTP: ACC cases for plan Task C8, release criterion (Task C6) [skip ci]'), 0)
+    expect(Object.keys(done)).toEqual(['task-C6'])
+  })
+
   test('a plan edit that names a task in its body does not finish it', () => {
     const done = matchCommits(plan4c, parseGitLog('500\t4c Part B plan, review fix: a Task 3 test pins it\n600\tSpec 4c, Task 2 reworded'), 0)
     expect(done).toEqual({})
