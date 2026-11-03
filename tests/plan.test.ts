@@ -165,6 +165,9 @@ describe('matchCommits', () => {
     const plan = parsePlan(c.replace('Delivery 4b: ', ''), '/r/plans/part-c.md')!
     const done = matchCommits(plan, parseGitLog('500\tSTP: ACC cases for plan Task C8, release criterion (Task C6) [skip ci]'), 0)
     expect(Object.keys(done)).toEqual(['task-C6'])
+    // 3 Nov 2026: a note in brackets that names a task is not a tag; a tag starts with the task
+    const note = matchCommits(plan, parseGitLog('600\tFollow-up: case 021 (plan Task C8 has no step for it); DOCX (EN + HE) (Task C6) [skip ci]'), 0)
+    expect(Object.keys(note)).toEqual(['task-C6'])
   })
 
   test('a plan edit that names a task in its body does not finish it', () => {
