@@ -432,6 +432,14 @@ export function estimate(
     const isDone = t.isDone || s?.status === 'completed' || done[t.key] !== undefined
     return { t, s, isDone, at }
   })
+  // A plan whose finished tasks are ticked (one task has every box ticked) finishes a task by
+  // its ticks: the newest task the commits name, boxes still open, is being worked on (fixes,
+  // reviews, documents), not done. A later task's commit or tick puts it behind.
+  if (plan.tasks.some(t => t.steps > 0 && t.stepsDone === t.steps)) {
+    const lastGit = finished.map(f => done[f.t.key] !== undefined).lastIndexOf(true)
+    const f = finished[lastGit]
+    if (f && f.t.steps > 0 && !f.t.isDone && f.s?.status !== 'completed') f.isDone = false
+  }
   // Plans run in order: a finished task means the ones before it are finished too
   // (an older plan whose commits never named its tasks still reads as done).
   const lastDoneIdx = finished.map(f => f.isDone).lastIndexOf(true)

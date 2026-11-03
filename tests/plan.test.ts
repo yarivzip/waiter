@@ -310,6 +310,46 @@ describe('estimate', () => {
     expect(v.leftMs).toBe(8 * MIN)
   })
 
+  // 3 Nov 2026 (KMS 6a): C6 had many "(Task C6)" commits (fixes, docs, a review round) and
+  // the waiter showed C6 done and C7 running. In a plan whose finished tasks are ticked, a
+  // commit means work on a task; its ticked boxes (or a later task's commits) finish it.
+  test('in a ticked plan, a task with commits but open boxes is still the current one', () => {
+    const text = `# KMS 6a — Part C
+
+### Task C5: Security sweep
+
+- [x] **Step 1: Tests**
+- [x] **Step 2: Commit**
+
+### Task C6: Documents
+
+- [ ] **Step 1: STP**
+- [ ] **Step 2: Commit**
+
+### Task C7: Final review
+
+- [ ] **Step 1: Review**
+
+### Task C8: Acceptance at the reader
+
+- [ ] **Step 1: Install**
+`
+    const plan = parsePlan(text, '/r/plans/part-c.md')!
+    const c6 = { 'task-C6': { at: 30 * MIN, by: 'git' as const } }
+    const v = estimate(plan, c6, [], 0, 6_000, 3 * 60 * MIN)
+    expect(v.rows.map(r => r.state)).toEqual(['done', 'current', 'todo', 'todo'])
+    // its boxes ticked, C6 is done
+    const ticked = parsePlan(text.replace(/- \[ \] \*\*Step (\d): (STP|Commit)/g, '- [x] **Step $1: $2'), '/r/plans/part-c.md')!
+    expect(estimate(ticked, c6, [], 0, 6_000, 3 * 60 * MIN).rows.map(r => r.state)).toEqual(['done', 'done', 'current', 'todo'])
+    // a commit on C7 means C6 is behind it
+    const c7 = { ...c6, 'task-C7': { at: 60 * MIN, by: 'git' as const } }
+    expect(estimate(plan, c7, [], 0, 6_000, 3 * 60 * MIN).rows.map(r => r.state)).toEqual(['done', 'done', 'current', 'todo'])
+    // a plan nobody ticks still finishes tasks by their commits
+    const plain = parsePlan(text.replace(/- \[x\]/g, '- [ ]'), '/r/plans/part-c.md')!
+    const both = { 'task-C5': { at: 10 * MIN, by: 'git' as const }, ...c6 }
+    expect(estimate(plain, both, [], 0, 6_000, 3 * 60 * MIN).rows.map(r => r.state)).toEqual(['done', 'done', 'current', 'todo'])
+  })
+
   test('a session task named "Task 2" lends its times to the plan task', () => {
     const plan = parsePlan(SUPERPOWERS.replace(/- \[x\]/g, '- [ ]'), '/r/plans/4b.md')!
     const list = [{ id: '9', subject: 'Task 2: Profile fields', status: 'in_progress' as const, startedAt: 50 * MIN }]
